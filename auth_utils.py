@@ -48,14 +48,6 @@ def save_user_to_supabase(email, password):
         # Chiffrer les identifiants
         encrypted_creds = encrypt_credentials(email, password)
         
-        # Essayer d'insérer l'utilisateur
-        user_data = {
-            "id": str(uuid.uuid4()),
-            "email": email,
-            "encrypted_credentials": encrypted_creds,
-            "last_login": datetime.now().isoformat()
-        }
-        
         # Vérifier si l'utilisateur existe déjà
         existing_user = supabase.table("users").select("*").eq("email", email).execute()
         
@@ -65,11 +57,29 @@ def save_user_to_supabase(email, password):
                 "encrypted_credentials": encrypted_creds,
                 "last_login": datetime.now().isoformat()
             }).eq("email", email).execute()
-            return existing_user.data[0]["id"]
+            
+            if result.data:
+                return existing_user.data[0]["id"]
+            else:
+                st.error(f"Erreur lors de la mise à jour : {result}")
+                return None
         else:
             # Créer un nouvel utilisateur
+            user_data = {
+                "id": str(uuid.uuid4()),
+                "email": email,
+                "encrypted_credentials": encrypted_creds,
+                "created_at": datetime.now().isoformat(),
+                "last_login": datetime.now().isoformat()
+            }
+            
             result = supabase.table("users").insert(user_data).execute()
-            return result.data[0]["id"]
+            
+            if result.data:
+                return result.data[0]["id"]
+            else:
+                st.error(f"Erreur lors de la création : {result}")
+                return None
             
     except Exception as e:
         st.error(f"Erreur lors de la sauvegarde : {str(e)}")
