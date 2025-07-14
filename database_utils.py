@@ -7,6 +7,9 @@ from config import SUPABASE_URL, SUPABASE_KEY
 def parse_email_date(date_str):
     """Parse une date d'email en objet datetime"""
     try:
+        if not date_str or date_str.strip() == "":
+            return datetime.now()  # Retourner la date actuelle si pas de date
+            
         formats = [
             "%a, %d %b %Y %H:%M:%S %z",
             "%d %b %Y %H:%M:%S %z",
@@ -22,9 +25,10 @@ def parse_email_date(date_str):
             except ValueError:
                 continue
         
-        return None
+        # Si aucun format ne fonctionne, retourner la date actuelle
+        return datetime.now()
     except Exception:
-        return None
+        return datetime.now()
 
 # Client Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -32,8 +36,12 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def save_email_to_supabase(user_id, email_data, email_id=None):
     """Sauvegarde un email dans la base de données Supabase"""
     try:
-        # Parser la date
+        # Parser la date - maintenant garantie de ne pas être None
         date_received = parse_email_date(email_data.get('date', ''))
+        
+        # S'assurer que la date n'est jamais None
+        if date_received is None:
+            date_received = datetime.now()
         
         email_record = {
             'user_id': user_id,
@@ -42,7 +50,7 @@ def save_email_to_supabase(user_id, email_data, email_id=None):
             'sender': email_data.get('from', ''),
             'recipient': email_data.get('to', ''),
             'body': email_data.get('body', ''),
-            'date_received': date_received.isoformat() if date_received else None,
+            'date_received': date_received.isoformat(),  # Toujours une date valide
             'is_processed': False,
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
