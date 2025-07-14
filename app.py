@@ -137,3 +137,9 @@ with col2:
     st.metric("🔍 Mails filtrés", len(filtered_mails))
 with col3:
     st.metric("👤 Utilisateur", st.session_state.get('user_email', 'N/A').split('@')[0])
+
+    try:
+    data = supabase.table("users").select("*").limit(1).execute()
+    st.write("Accès à la table users OK :", data)
+except Exception as e:
+st.error(f"Erreur d'accès à la table users : {e}")
