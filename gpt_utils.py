@@ -2,7 +2,7 @@ import openai
 import os
 import tiktoken
 import streamlit as st
-from database_utils import save_summary_to_db, get_email_summary, save_reply_to_db
+from database_utils import save_email_summary, get_email_summary, save_email_reply
 
 def get_openai_client():
     """Configuration robuste de l'API OpenAI pour Streamlit"""
@@ -40,11 +40,13 @@ def summarize_emails(mails):
     """Génère un résumé des emails - avec mise en cache en DB"""
     try:
         # Si c'est un seul email avec un ID, vérifier le cache
-        if len(mails) == 1 and mails[0].get('id'):
-            email_id = mails[0]['id']
-            cached_summary = get_email_summary(email_id)
-            if cached_summary:
-                return cached_summary
+        if len(mails) == 1 and mails[0].get('db_id'):
+            user_id = st.session_state.get('user_id')
+            email_db_id = mails[0]['db_id']
+            if user_id and email_db_id:
+                cached_summary = get_email_summary(user_id, email_db_id)
+                if cached_summary:
+                    return cached_summary['summary_text']
         
         # Générer le résumé
         full_text = "\n\n".join(mail['body'] for mail in mails)
@@ -64,11 +66,11 @@ def summarize_emails(mails):
         summary = response.choices[0].message.content
         
         # Sauvegarder en cache si c'est un seul email
-        if len(mails) == 1 and mails[0].get('id'):
+        if len(mails) == 1 and mails[0].get('db_id'):
             user_id = st.session_state.get('user_id')
-            email_id = mails[0]['id']
-            if user_id and email_id:
-                save_summary_to_db(user_id, email_id, summary)
+            email_db_id = mails[0]['db_id']
+            if user_id and email_db_id:
+                save_email_summary(user_id, email_db_id, summary)
         
         return summary
         
@@ -76,7 +78,7 @@ def summarize_emails(mails):
         st.error(f"❌ Erreur lors de l'appel OpenAI : {str(e)}")
         return f"Erreur : {str(e)}"
 
-def generate_reply(email_body, prompt, email_id=None):
+def generate_reply(email_body, prompt, email_db_id=None):
     """Génère une réponse à un email - avec sauvegarde en DB"""
     try:
         messages = [
@@ -94,8 +96,8 @@ def generate_reply(email_body, prompt, email_id=None):
         
         # Sauvegarder la réponse en base de données
         user_id = st.session_state.get('user_id')
-        if user_id and email_id:
-            reply_id = save_reply_to_db(user_id, email_id, prompt, reply, is_sent=False)
+        if user_id and email_db_id:
+            reply_id = save_email_reply(user_id, email_db_id, prompt, reply, reply, was_sent=False)
             # Stocker l'ID de la réponse dans la session pour le suivi
             st.session_state['current_reply_id'] = reply_id
         
