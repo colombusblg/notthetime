@@ -6,8 +6,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import streamlit as st
-from auth_utils import get_current_user_credentials
-from database_utils import sync_emails_with_imap, get_user_emails
 
 def parse_email_date(date_str):
     """Parse une date d'email en objet datetime"""
@@ -37,6 +35,7 @@ def fetch_emails_from_imap():
     """Récupère les emails depuis IMAP (fonction helper)"""
     try:
         # Récupérer les identifiants de l'utilisateur connecté
+        from auth_utils import get_current_user_credentials
         credentials = get_current_user_credentials()
         if not credentials:
             st.error("❌ Impossible de récupérer les identifiants utilisateur")
@@ -116,6 +115,9 @@ def fetch_emails_from_imap():
 def initialize_mails(force_sync=False):
     """Initialise les emails - priorité à la DB, sync IMAP si nécessaire"""
     try:
+        # Import local pour éviter les imports circulaires
+        from database_utils import sync_emails_with_imap, get_user_emails
+        
         user_id = st.session_state.get('user_id')
         if not user_id:
             st.error("❌ Utilisateur non authentifié")
@@ -143,12 +145,12 @@ def initialize_mails(force_sync=False):
         emails = []
         for db_email in db_emails:
             emails.append({
-                "id": db_email["id"],  # ID de la base de données
-                "from": db_email["from_email"],
-                "subject": db_email["subject"],
-                "date": db_email["date_received"],
-                "body": db_email["body"],
-                "is_read": db_email["is_read"]
+                "id": db_email.get("id"),  # ID de la base de données
+                "from": db_email.get("sender", ""),
+                "subject": db_email.get("subject", ""),
+                "date": db_email.get("date_received", ""),
+                "body": db_email.get("body", ""),
+                "is_processed": db_email.get("is_processed", False)
             })
         
         return emails
@@ -160,6 +162,9 @@ def initialize_mails(force_sync=False):
 def send_email(to, subject, body):
     """Envoie un email via SMTP"""
     try:
+        # Import local pour éviter les imports circulaires
+        from auth_utils import get_current_user_credentials
+        
         # Récupérer les identifiants de l'utilisateur connecté
         credentials = get_current_user_credentials()
         if not credentials:

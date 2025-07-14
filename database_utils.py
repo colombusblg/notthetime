@@ -87,6 +87,11 @@ def get_user_emails_from_supabase(user_id, since_date=None, limit=50):
         st.error(f"Erreur lors de la récupération des emails : {str(e)}")
         return []
 
+# Alias pour la compatibilité
+def get_user_emails(user_id, since_date=None, limit=50):
+    """Alias pour get_user_emails_from_supabase pour compatibilité"""
+    return get_user_emails_from_supabase(user_id, since_date, limit)
+
 def save_email_summary(user_id, email_id, summary_text):
     """Sauvegarde un résumé dans la base de données"""
     try:
