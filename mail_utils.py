@@ -44,7 +44,8 @@ def parse_email_date(date_str):
     return None
 
 with st.spinner("🔄 Chargement des mails..."):
-    mails = get_all_emails_with_local_history()
+   def initialize_mails():
+    return get_all_emails_with_local_history()
     
     response = supabase.table("email_history").insert(data).execute()
     if response.error:

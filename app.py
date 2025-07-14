@@ -1,5 +1,5 @@
 import streamlit as st
-from mail_utils import get_all_emails_with_local_history, send_email
+from mail_utils import initialize_mails, send_email
 from gpt_utils import summarize_emails, generate_reply
 from auth_utils import login_form, logout, is_authenticated
 from datetime import datetime, date
@@ -43,8 +43,26 @@ def parse_email_date(date_str):
             continue
     return None
 
-with st.spinner("🔄 Chargement des mails..."):
-    mails = get_all_emails_with_local_history()
+# Initialisation sécurisée des mails avec session state
+if 'mails' not in st.session_state:
+    with st.spinner("🔄 Chargement des mails..."):
+        try:
+            st.session_state.mails = initialize_mails()
+        except Exception as e:
+            st.error(f"❌ Erreur lors du chargement des mails: {str(e)}")
+            st.session_state.mails = []
+
+mails = st.session_state.mails
+
+# Bouton pour recharger les mails
+if st.button("🔄 Recharger les mails"):
+    with st.spinner("🔄 Rechargement des mails..."):
+        try:
+            st.session_state.mails = initialize_mails()
+            st.success("✅ Mails rechargés avec succès !")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Erreur lors du rechargement: {str(e)}")
 
 if not mails:
     st.warning("Aucun mail trouvé.")
