@@ -46,18 +46,27 @@ def parse_email_date(date_str):
 with st.spinner("🔄 Chargement des mails..."):
     mails = get_all_emails_with_local_history()
 
-# Insérer les mails dans la table email_history de Supabase
-user_id = st.session_state.get("user_id")  # Assure-toi que user_id est bien dans session_state
+    from supabase import create_client, Client
+import os
 
-if user_id and mails:
-    for email in mails:
-        supabase.table("email_history").insert({
-            "user_id": user_id,
-            "email_from": email["from"],
-            "subject": email["subject"],
-            "email_date": email["date"],
-            "body": email["body"]
-        }).execute()
+SUPABASE_URL = st.secrets["https://rpwmjydoqnexqryptecf.supabase.co"]
+SUPABASE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwd21qeWRvcW5leHFyeXB0ZWNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0OTYwNDAsImV4cCI6MjA2ODA3MjA0MH0.W70oVTXwR9zYac9pF3RUsJOe9O_tPuyhcYrk8cr3vrQ"]
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def save_email_history(user_id, email_from, subject, email_date, body):
+    data = {
+        "user_id": user_id,
+        "email_from": email_from,
+        "subject": subject,
+        "email_date": email_date,
+        "body": body
+    }
+    response = supabase.table("email_history").insert(data).execute()
+    if response.error:
+        print(f"Erreur sauvegarde email : {response.error}")
+    else:
+        print("Email sauvegardé en base")
 
 
 if not mails:
