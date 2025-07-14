@@ -1,5 +1,4 @@
 import streamlit as st
-from mail_utils import get_all_emails_with_history, send_email
 from gpt_utils import summarize_emails, generate_reply
 from auth_utils import login_form, logout, is_authenticated
 from datetime import datetime, date
@@ -45,7 +44,7 @@ def parse_email_date(date_str):
     return None
 
 with st.spinner("🔄 Chargement des mails..."):
-    mails = get_all_emails_with_history()
+    mails = get_all_emails_with_local_history()
 
 if not mails:
     st.warning("Aucun mail trouvé.")
