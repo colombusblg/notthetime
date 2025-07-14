@@ -1,32 +1,103 @@
-import streamlit as st
-from gpt_utils import summarize_emails, generate_reply
-from auth_utils import login_form, logout, is_authenticated
-from datetime import datetime, date
 import os
+from datetime import datetime
+# Ajoutez ici vos imports spécifiques pour les emails et Supabase
+# from supabase import create_client, Client
+# import imaplib, smtplib, etc.
 
-# Configuration OpenAI
-os.environ["OPENAI_API_KEY"] = st.secrets.get("OPENAI_API_KEY", "")
+def initialize_mails():
+    """
+    Initialise et retourne la liste des emails.
+    Cette fonction remplace l'ancienne variable globale 'mails'.
+    """
+    try:
+        mails = get_all_emails_with_local_history()
+        
+        if not mails:
+            print("Aucun mail trouvé")
+            return []
+            
+        return mails
+    except Exception as e:
+        print(f"Erreur lors du chargement des mails: {e}")
+        return []
 
-st.set_page_config(page_title="Assistant Mail", layout="centered")
+def get_all_emails_with_local_history():
+    """
+    Récupère tous les emails avec l'historique local.
+    Retourne une liste de dictionnaires contenant les emails.
+    
+    VOUS DEVEZ IMPLÉMENTER CETTE FONCTION selon votre configuration email.
+    """
+    try:
+        # REMPLACEZ ce code par votre vraie logique de récupération d'emails
+        # Exemple avec imaplib, Gmail API, ou autre service email
+        
+        # Exemple placeholder - À REMPLACER par votre code réel :
+        emails = [
+            {
+                "from": "example@email.com",
+                "subject": "Test Email",
+                "date": "Mon, 14 Jul 2025 10:00:00 +0200",
+                "body": "Ceci est un email de test."
+            }
+        ]
+        
+        return emails
+        
+    except Exception as e:
+        print(f"Erreur lors de la récupération des emails: {e}")
+        return []
 
-# Vérifier l'authentification
-if not is_authenticated():
-    login_form()
-    st.stop()
+def send_email(to, subject, body):
+    """
+    Envoie un email.
+    Retourne True si succès, False sinon.
+    
+    VOUS DEVEZ IMPLÉMENTER CETTE FONCTION selon votre configuration email.
+    """
+    try:
+        # REMPLACEZ ce code par votre vraie logique d'envoi d'email
+        # Exemple avec smtplib, Gmail API, ou autre service email
+        
+        print(f"Envoi email à {to}")
+        print(f"Sujet: {subject}")
+        print(f"Corps: {body}")
+        
+        # Sauvegarde en base si nécessaire
+        email_data = {
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "sent_at": datetime.now().isoformat()
+        }
+        save_email_to_supabase(email_data)
+        
+        # Retournez True si l'envoi réussit
+        return True
+        
+    except Exception as e:
+        print(f"Erreur lors de l'envoi: {e}")
+        return False
 
-# Interface principale pour les utilisateurs connectés
-col1, col2 = st.columns([3, 1])
-
-with col1:
-    st.title("📬 Assistant Mail – Résumé et Réponses")
-
-with col2:
-    st.markdown(f"**👤 Connecté:** {st.session_state.get('user_email', 'Utilisateur')}")
-    if st.button("🚪 Déconnexion"):
-        logout()
-
-# Choix de la date avec un datepicker Streamlit
-selected_date = st.date_input("📅 Filtrer les mails depuis cette date :", value=date.today())
+def save_email_to_supabase(data):
+    """
+    Sauvegarde un email dans la base Supabase.
+    """
+    try:
+        # VOUS DEVEZ CONFIGURER SUPABASE d'abord
+        # supabase = create_client(url, key)
+        
+        # Exemple placeholder - À REMPLACER par votre code réel :
+        # response = supabase.table("email_history").insert(data).execute()
+        # if response.error:
+        #     print(f"Erreur sauvegarde email : {response.error}")
+        # else:
+        #     print("Email sauvegardé en base")
+        
+        print(f"Email sauvegardé (placeholder): {data}")
+        
+    except Exception as e:
+        print(f"Erreur lors de la sauvegarde : {e}")
 
 def parse_email_date(date_str):
     """Convertit la date d'entête mail en objet datetime"""
@@ -43,106 +114,4 @@ def parse_email_date(date_str):
             continue
     return None
 
-with st.spinner("🔄 Chargement des mails..."):
-   def initialize_mails():
-    return get_all_emails_with_local_history()
-    
-    response = supabase.table("email_history").insert(data).execute()
-    if response.error:
-        print(f"Erreur sauvegarde email : {response.error}")
-    else:
-        print("Email sauvegardé en base")
-
-
-if not mails:
-    st.warning("Aucun mail trouvé.")
-    st.stop()
-
-# Filtrer les mails selon la date sélectionnée
-filtered_mails = []
-for mail in mails:
-    mail_date_str = mail.get("date", "")
-    mail_datetime = parse_email_date(mail_date_str)
-    if mail_datetime is None:
-        continue
-    if mail_datetime.date() >= selected_date:
-        filtered_mails.append(mail)
-
-if not filtered_mails:
-    st.warning(f"Aucun mail trouvé depuis le {selected_date.strftime('%d %b %Y')}.")
-    st.stop()
-
-# Afficher le nombre de mails trouvés
-st.info(f"📊 {len(filtered_mails)} mail(s) trouvé(s) depuis le {selected_date.strftime('%d %b %Y')}")
-
-# Sélection du mail
-mail_options = [f"{i+1}. {mail['subject']} – {mail['from']}" for i, mail in enumerate(filtered_mails)]
-selected_index = st.selectbox("✉️ Choisissez un mail à traiter :", range(len(mail_options)), format_func=lambda i: mail_options[i])
-selected_mail = filtered_mails[selected_index]
-
-# Résumé du mail
-st.markdown("### 📌 Résumé du mail")
-with st.spinner("🤖 Génération du résumé..."):
-    summary = summarize_emails([selected_mail])
-st.info(summary)
-
-# Affichage du contenu complet
-with st.expander("📄 Afficher le contenu complet du mail"):
-    st.markdown(f"**De:** {selected_mail['from']}")
-    st.markdown(f"**Sujet:** {selected_mail['subject']}")
-    st.markdown(f"**Date:** {selected_mail['date']}")
-    st.markdown("**Corps du message:**")
-    st.text(selected_mail['body'])
-
-# Génération et envoi de réponse
-st.markdown("### 🤖 Générer et envoyer une réponse")
-
-with st.form("reply_form"):
-    user_prompt = st.text_input(
-        "💭 Expliquez ce que vous voulez répondre", 
-        placeholder="ex: 'Refuser poliment', 'Demander plus d'infos', 'Accepter la proposition'..."
-    )
-
-    generated_reply = st.text_area(
-        "✍️ Réponse générée (modifiable avant envoi)",
-        value=st.session_state.get("generated_reply", ""),
-        height=300,
-        placeholder="La réponse générée apparaîtra ici..."
-    )
-
-    col1, col2 = st.columns(2)
-    with col1:
-        generate = st.form_submit_button("💬 Générer une réponse", use_container_width=True)
-    with col2:
-        send = st.form_submit_button("📤 Envoyer la réponse", use_container_width=True)
-
-    if generate and user_prompt:
-        with st.spinner("🤖 GPT rédige une réponse..."):
-            reply = generate_reply(selected_mail["body"], user_prompt)
-            st.session_state["generated_reply"] = reply
-            st.rerun()
-
-    if send and st.session_state.get("generated_reply"):
-        with st.spinner("📤 Envoi de la réponse..."):
-            success = send_email(
-                to=selected_mail["from"],
-                subject="Re: " + selected_mail["subject"],
-                body=st.session_state["generated_reply"]
-            )
-            if success:
-                st.success("✅ Réponse envoyée avec succès !")
-                del st.session_state["generated_reply"]
-                st.rerun()
-            else:
-                st.error("❌ Erreur lors de l'envoi de la réponse")
-
-# Statistiques
-st.markdown("---")
-st.markdown("### 📊 Statistiques")
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("📧 Mails totaux", len(mails))
-with col2:
-    st.metric("🔍 Mails filtrés", len(filtered_mails))
-with col3:
-    st.metric("👤 Utilisateur", st.session_state.get('user_email', 'N/A').split('@')[0])
+# Ajoutez ici d'autres fonctions utilitaires pour les emails si nécessaire

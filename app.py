@@ -1,8 +1,12 @@
 import streamlit as st
-from mail_utils import initialize_mails, send_email
+from mail_utils import initialize_mails, send_email, parse_email_date
 from gpt_utils import summarize_emails, generate_reply
 from auth_utils import login_form, logout, is_authenticated
 from datetime import datetime, date
+import os
+
+# Configuration OpenAI
+os.environ["OPENAI_API_KEY"] = st.secrets.get("OPENAI_API_KEY", "")
 
 st.set_page_config(page_title="Assistant Mail", layout="centered")
 
@@ -22,26 +26,8 @@ with col2:
     if st.button("🚪 Déconnexion"):
         logout()
 
-# Choix de la date avec un datepicker Streamlit (par défaut aujourd'hui)
+# Choix de la date avec un datepicker Streamlit
 selected_date = st.date_input("📅 Filtrer les mails depuis cette date :", value=date.today())
-
-def parse_email_date(date_str):
-    """
-    Convertit la date d'entête mail en objet datetime.
-    Supporte plusieurs formats classiques du header Date.
-    """
-    formats = [
-        "%a, %d %b %Y %H:%M:%S %z",  # Exemple : 'Fri, 11 Jul 2025 10:30:00 +0200'
-        "%a, %d %b %Y %H:%M:%S",     # Sans fuseau horaire
-        "%d %b %Y %H:%M:%S %z",      # Sans jour semaine
-        "%d %b %Y %H:%M:%S"
-    ]
-    for fmt in formats:
-        try:
-            return datetime.strptime(date_str, fmt)
-        except Exception:
-            continue
-    return None
 
 # Initialisation sécurisée des mails avec session state
 if 'mails' not in st.session_state:
@@ -74,9 +60,7 @@ for mail in mails:
     mail_date_str = mail.get("date", "")
     mail_datetime = parse_email_date(mail_date_str)
     if mail_datetime is None:
-        # Si on ne peut pas parser la date, on ignore le mail
         continue
-    # Comparaison uniquement sur la date (sans l'heure)
     if mail_datetime.date() >= selected_date:
         filtered_mails.append(mail)
 
@@ -87,15 +71,18 @@ if not filtered_mails:
 # Afficher le nombre de mails trouvés
 st.info(f"📊 {len(filtered_mails)} mail(s) trouvé(s) depuis le {selected_date.strftime('%d %b %Y')}")
 
+# Sélection du mail
 mail_options = [f"{i+1}. {mail['subject']} – {mail['from']}" for i, mail in enumerate(filtered_mails)]
 selected_index = st.selectbox("✉️ Choisissez un mail à traiter :", range(len(mail_options)), format_func=lambda i: mail_options[i])
 selected_mail = filtered_mails[selected_index]
 
+# Résumé du mail
 st.markdown("### 📌 Résumé du mail")
 with st.spinner("🤖 Génération du résumé..."):
     summary = summarize_emails([selected_mail])
 st.info(summary)
 
+# Affichage du contenu complet
 with st.expander("📄 Afficher le contenu complet du mail"):
     st.markdown(f"**De:** {selected_mail['from']}")
     st.markdown(f"**Sujet:** {selected_mail['subject']}")
@@ -103,6 +90,7 @@ with st.expander("📄 Afficher le contenu complet du mail"):
     st.markdown("**Corps du message:**")
     st.text(selected_mail['body'])
 
+# Génération et envoi de réponse
 st.markdown("### 🤖 Générer et envoyer une réponse")
 
 with st.form("reply_form"):
@@ -139,13 +127,12 @@ with st.form("reply_form"):
             )
             if success:
                 st.success("✅ Réponse envoyée avec succès !")
-                # Nettoyer la réponse générée après envoi
                 del st.session_state["generated_reply"]
                 st.rerun()
             else:
                 st.error("❌ Erreur lors de l'envoi de la réponse")
 
-# Afficher des statistiques en bas
+# Statistiques
 st.markdown("---")
 st.markdown("### 📊 Statistiques")
 col1, col2, col3 = st.columns(3)
