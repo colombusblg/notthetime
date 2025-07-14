@@ -1,0 +1,10 @@
+# Configuration Supabase
+SUPABASE_URL=https://votre-projet.supabase.co
+SUPABASE_KEY=votre-cle-anon-supabase
+
+# Configuration OpenAI
+OPENAI_API_KEY=sk-votre-cle-openai
+
+# Configuration Gmail (pour tests locaux uniquement)
+GMAIL_EMAIL=votre.email@gmail.com
+GMAIL_PASSWORD=votre-mot-de-passe-app

@@ -1,0 +1,7 @@
+streamlit
+openai
+tiktoken
+python-dotenv
+cryptography
+supabase
+email-validator
