@@ -184,7 +184,7 @@ with st.form("reply_form"):
 
     if generate and user_prompt:
         with st.spinner("🤖 GPT rédige une réponse..."):
-            # CORRECTION : Passer le db_id à la fonction generate_reply
+            # Passer le db_id à la fonction generate_reply
             reply = generate_reply(selected_mail["body"], user_prompt, selected_mail['db_id'])
             st.session_state["generated_reply"] = reply
             # Sauvegarder la réponse générée dans Supabase
