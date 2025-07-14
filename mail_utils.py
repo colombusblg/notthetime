@@ -46,6 +46,20 @@ def parse_email_date(date_str):
 with st.spinner("🔄 Chargement des mails..."):
     mails = get_all_emails_with_local_history()
 
+# Insérer les mails dans la table email_history de Supabase
+user_id = st.session_state.get("user_id")  # Assure-toi que user_id est bien dans session_state
+
+if user_id and mails:
+    for email in mails:
+        supabase.table("email_history").insert({
+            "user_id": user_id,
+            "email_from": email["from"],
+            "subject": email["subject"],
+            "email_date": email["date"],
+            "body": email["body"]
+        }).execute()
+
+
 if not mails:
     st.warning("Aucun mail trouvé.")
     st.stop()
