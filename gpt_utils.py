@@ -1,7 +1,8 @@
 import openai
 import os
-import tiktoken  # si tu ne l'as pas, installe avec `pip install tiktoken`
+import tiktoken
 import streamlit as st
+from database_utils import save_summary_to_db, get_email_summary, save_reply_to_db
 
 def get_openai_client():
     """Configuration robuste de l'API OpenAI pour Streamlit"""
@@ -36,38 +37,70 @@ def truncate_text(text, max_tokens=3000):
     return enc.decode(tokens)
 
 def summarize_emails(mails):
-    full_text = "\n\n".join(mail['body'] for mail in mails)
-    truncated_text = truncate_text(full_text, max_tokens=3000)  # limite à 3000 tokens
-
-    messages = [
-        {"role": "system", "content": "Tu es un assistant qui résume des mails."},
-        {"role": "user", "content": f"Voici les mails à résumer :\n{truncated_text}"}
-    ]
-
+    """Génère un résumé des emails - avec mise en cache en DB"""
     try:
+        # Si c'est un seul email avec un ID, vérifier le cache
+        if len(mails) == 1 and mails[0].get('id'):
+            email_id = mails[0]['id']
+            cached_summary = get_email_summary(email_id)
+            if cached_summary:
+                return cached_summary
+        
+        # Générer le résumé
+        full_text = "\n\n".join(mail['body'] for mail in mails)
+        truncated_text = truncate_text(full_text, max_tokens=3000)
+
+        messages = [
+            {"role": "system", "content": "Tu es un assistant qui résume des mails."},
+            {"role": "user", "content": f"Voici les mails à résumer :\n{truncated_text}"}
+        ]
+
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
             max_tokens=1000,
         )
-        return response.choices[0].message.content
+        
+        summary = response.choices[0].message.content
+        
+        # Sauvegarder en cache si c'est un seul email
+        if len(mails) == 1 and mails[0].get('id'):
+            user_id = st.session_state.get('user_id')
+            email_id = mails[0]['id']
+            if user_id and email_id:
+                save_summary_to_db(user_id, email_id, summary)
+        
+        return summary
+        
     except Exception as e:
         st.error(f"❌ Erreur lors de l'appel OpenAI : {str(e)}")
         return f"Erreur : {str(e)}"
 
-def generate_reply(email_body, prompt):
-    messages = [
-        {"role": "system", "content": "Tu es un assistant qui aide à rédiger des emails professionnels."},
-        {"role": "user", "content": f"Voici un mail reçu :\n{email_body}\n\nJe souhaite répondre avec cette intention :\n{prompt}"}
-    ]
-
+def generate_reply(email_body, prompt, email_id=None):
+    """Génère une réponse à un email - avec sauvegarde en DB"""
     try:
+        messages = [
+            {"role": "system", "content": "Tu es un assistant qui aide à rédiger des emails professionnels."},
+            {"role": "user", "content": f"Voici un mail reçu :\n{email_body}\n\nJe souhaite répondre avec cette intention :\n{prompt}"}
+        ]
+
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
             max_tokens=700,
         )
-        return response.choices[0].message.content.strip()
+        
+        reply = response.choices[0].message.content.strip()
+        
+        # Sauvegarder la réponse en base de données
+        user_id = st.session_state.get('user_id')
+        if user_id and email_id:
+            reply_id = save_reply_to_db(user_id, email_id, prompt, reply, is_sent=False)
+            # Stocker l'ID de la réponse dans la session pour le suivi
+            st.session_state['current_reply_id'] = reply_id
+        
+        return reply
+        
     except Exception as e:
         st.error(f"❌ Erreur lors de l'appel OpenAI : {str(e)}")
         return f"Erreur : {str(e)}"

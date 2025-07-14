@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import streamlit as st
 from auth_utils import get_current_user_credentials
+from database_utils import sync_emails_with_imap, get_user_emails
 
 def parse_email_date(date_str):
     """Parse une date d'email en objet datetime"""
@@ -32,8 +33,8 @@ def parse_email_date(date_str):
     except Exception:
         return None
 
-def initialize_mails():
-    """Initialise et récupère les emails via IMAP"""
+def fetch_emails_from_imap():
+    """Récupère les emails depuis IMAP (fonction helper)"""
     try:
         # Récupérer les identifiants de l'utilisateur connecté
         credentials = get_current_user_credentials()
@@ -110,6 +111,50 @@ def initialize_mails():
         
     except Exception as e:
         st.error(f"❌ Erreur IMAP : {str(e)}")
+        return []
+
+def initialize_mails(force_sync=False):
+    """Initialise les emails - priorité à la DB, sync IMAP si nécessaire"""
+    try:
+        user_id = st.session_state.get('user_id')
+        if not user_id:
+            st.error("❌ Utilisateur non authentifié")
+            return []
+        
+        # Récupérer les emails depuis la base de données
+        db_emails = get_user_emails(user_id)
+        
+        # Si pas d'emails en DB ou synchronisation forcée
+        if not db_emails or force_sync:
+            st.info("🔄 Synchronisation avec Gmail...")
+            
+            # Récupérer depuis IMAP
+            imap_emails = fetch_emails_from_imap()
+            
+            if imap_emails:
+                # Synchroniser avec la base de données
+                synced_count = sync_emails_with_imap(user_id, imap_emails)
+                st.success(f"✅ {synced_count} emails synchronisés")
+                
+                # Récupérer les emails mis à jour depuis la DB
+                db_emails = get_user_emails(user_id)
+        
+        # Convertir le format DB vers le format attendu par l'app
+        emails = []
+        for db_email in db_emails:
+            emails.append({
+                "id": db_email["id"],  # ID de la base de données
+                "from": db_email["from_email"],
+                "subject": db_email["subject"],
+                "date": db_email["date_received"],
+                "body": db_email["body"],
+                "is_read": db_email["is_read"]
+            })
+        
+        return emails
+        
+    except Exception as e:
+        st.error(f"❌ Erreur lors de l'initialisation : {str(e)}")
         return []
 
 def send_email(to, subject, body):
