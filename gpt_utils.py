@@ -1,5 +1,11 @@
 import openai
+import os
 import tiktoken  # si tu ne l'as pas, installe avec `pip install tiktoken`
+
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def truncate_text(text, max_tokens=3000):
     enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
