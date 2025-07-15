@@ -240,4 +240,47 @@ def get_user_statistics(user_id):
         summaries_count = supabase.table('email_summaries').select('id', count='exact').eq('user_id', user_id).execute()
         
         # Nombre de réponses envoyées
-        replies_sent_count = supabase.table('email_replies').select('id', count='exact').eq('user_id', user_id).eq('was_sent', True).
+        replies_sent_count = supabase.table('email_replies').select('id', count='exact').eq('user_id', user_id).eq('was_sent', True).execute()
+        
+        return {
+            'total_emails': emails_count.count or 0,
+            'summaries_generated': summaries_count.count or 0,
+            'replies_sent': replies_sent_count.count or 0
+        }
+        
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des statistiques : {str(e)}")
+        return {'total_emails': 0, 'summaries_generated': 0, 'replies_sent': 0}
+
+def mark_email_as_processed(email_id):
+    """Marque un email comme traité"""
+    try:
+        result = supabase.table('user_emails').update({
+            'is_processed': True,
+            'updated_at': datetime.now().isoformat()
+        }).eq('id', email_id).execute()
+        
+        return result.data[0] if result.data else None
+        
+    except Exception as e:
+        st.error(f"Erreur lors de la mise à jour : {str(e)}")
+        return None
+
+def sync_emails_with_imap(user_id, imap_emails):
+    """Synchronise les emails IMAP avec la base de données"""
+    try:
+        synced_count = 0
+        
+        for email_data in imap_emails:
+            # Utiliser l'email_id fourni par IMAP ou générer un nouveau
+            email_unique_id = email_data.get('email_id') or generate_email_id(email_data)
+            
+            saved_id = save_email_to_supabase(user_id, email_data, email_unique_id)
+            if saved_id:
+                synced_count += 1
+        
+        return synced_count
+        
+    except Exception as e:
+        st.error(f"Erreur lors de la synchronisation : {str(e)}")
+        return 0
