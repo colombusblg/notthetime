@@ -16,6 +16,7 @@ from database_utils import (
     mark_email_as_processed
 )
 from datetime import datetime, date, timezone
+import json
 
 st.set_page_config(page_title="Assistant Mail", layout="wide")
 
@@ -57,18 +58,44 @@ with col1:
 with col2:
     # Sélection des catégories à afficher
     available_categories = list(get_gmail_categories().keys())
+    
+    # Récupérer les catégories par défaut de manière sécurisée
+    saved_categories = user_preferences.get("selected_categories", available_categories)
+    
+    # Si c'est une string JSON, la convertir en liste
+    if isinstance(saved_categories, str):
+        try:
+            saved_categories = json.loads(saved_categories)
+        except:
+            saved_categories = available_categories
+    
+    # S'assurer que c'est une liste et que les valeurs sont valides
+    if not isinstance(saved_categories, list):
+        saved_categories = available_categories
+    
+    # Filtrer pour garder seulement les catégories valides
+    default_categories = [cat for cat in saved_categories if cat in available_categories]
+    if not default_categories:
+        default_categories = available_categories
+    
     selected_categories = st.multiselect(
         "📂 Catégories à afficher :",
         available_categories,
-        default=user_preferences.get("selected_categories", available_categories)
+        default=default_categories
     )
 
 # Sauvegarder les préférences
 if selected_date.isoformat() != default_date:
     save_user_preference(user_id, "default_filter_date", selected_date.isoformat())
 
-if selected_categories != user_preferences.get("selected_categories", available_categories):
-    save_user_preference(user_id, "selected_categories", selected_categories)
+if selected_categories != saved_categories:
+    # Sauvegarder comme JSON string pour éviter les problèmes
+    save_user_preference(user_id, "selected_categories", json.dumps(selected_categories))
+
+# Vérifier qu'au moins une catégorie est sélectionnée
+if not selected_categories:
+    st.error("⚠️ Veuillez sélectionner au moins une catégorie à afficher")
+    st.stop()
 
 # Options de chargement
 col1, col2, col3 = st.columns([2, 1, 1])
@@ -185,10 +212,11 @@ if show_stats:
         st.metric("📧 Total filtré", total_filtered)
     
     for idx, category in enumerate(selected_categories):
-        with cols[idx + 1]:
-            count = len(categorized_mails.get(category, []))
-            total_in_db = category_stats.get(category, 0)
-            st.metric(f"📂 {category}", f"{count}/{total_in_db}")
+        if idx + 1 < len(cols):  # Vérifier qu'on ne dépasse pas le nombre de colonnes
+            with cols[idx + 1]:
+                count = len(categorized_mails.get(category, []))
+                total_in_db = category_stats.get(category, 0)
+                st.metric(f"📂 {category}", f"{count}/{total_in_db}")
 
 # Interface principale avec onglets par catégorie
 if not categorized_mails or not any(len(emails) > 0 for emails in categorized_mails.values()):
@@ -199,10 +227,16 @@ if not categorized_mails or not any(len(emails) > 0 for emails in categorized_ma
     st.markdown("- Vérifier que vous avez bien des emails dans vos catégories Gmail")
     st.stop()
 
-# Créer des onglets pour chaque catégorie
-tabs = st.tabs([f"📂 {cat} ({len(categorized_mails.get(cat, []))})" for cat in selected_categories if categorized_mails.get(cat)])
+# Créer des onglets pour chaque catégorie qui a des emails
+categories_with_emails = [cat for cat in selected_categories if categorized_mails.get(cat)]
 
-for tab_idx, category in enumerate([cat for cat in selected_categories if categorized_mails.get(cat)]):
+if not categories_with_emails:
+    st.warning("Aucune catégorie sélectionnée ne contient d'emails.")
+    st.stop()
+
+tabs = st.tabs([f"📂 {cat} ({len(categorized_mails.get(cat, []))})" for cat in categories_with_emails])
+
+for tab_idx, category in enumerate(categories_with_emails):
     with tabs[tab_idx]:
         emails_in_category = categorized_mails[category]
         
@@ -338,7 +372,17 @@ with st.expander("⚙️ Préférences et paramètres"):
     with col1:
         st.markdown("**Préférences actuelles:**")
         for key, value in user_preferences.items():
-            if isinstance(value, list):
+            if isinstance(value, str) and key == "selected_categories":
+                try:
+                    # Essayer de parser le JSON pour un affichage plus propre
+                    parsed_value = json.loads(value)
+                    if isinstance(parsed_value, list):
+                        st.write(f"• {key}: {', '.join(parsed_value)}")
+                    else:
+                        st.write(f"• {key}: {value}")
+                except:
+                    st.write(f"• {key}: {value}")
+            elif isinstance(value, list):
                 st.write(f"• {key}: {', '.join(value)}")
             else:
                 st.write(f"• {key}: {value}")
