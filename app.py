@@ -18,6 +18,12 @@ from database_utils import (
 from datetime import datetime, date, timezone
 import json
 
+def clean_html_text(text):
+    """Nettoie le texte pour éviter les erreurs HTML"""
+    if not text:
+        return "Non spécifié"
+    return str(text).replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
 # Configuration de la page
 st.set_page_config(
     page_title="📧 Assistant Mail", 
@@ -473,14 +479,19 @@ if st.session_state.current_view == 'list':
             if len(snippet) > 150:
                 snippet += "..."
             
+            # Nettoyer les données pour l'affichage HTML
+            sender_clean = clean_html_text(email.get('from', 'Expéditeur inconnu'))
+            subject_clean = clean_html_text(email.get('subject', 'Pas de sujet'))
+            snippet_clean = clean_html_text(snippet)
+            
             st.markdown(f"""
             <div class="email-card {card_class}">
                 <div class="email-header">
-                    <div class="email-sender">{email.get('from', 'Expéditeur inconnu')}</div>
+                    <div class="email-sender">{sender_clean}</div>
                     <div class="email-date">{date_str}</div>
                 </div>
-                <div class="email-subject">{email.get('subject', 'Pas de sujet')}</div>
-                <div class="email-snippet">{snippet}</div>
+                <div class="email-subject">{subject_clean}</div>
+                <div class="email-snippet">{snippet_clean}</div>
                 <div class="email-status {status_class}">{status_text}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -510,8 +521,8 @@ elif st.session_state.current_view == 'detail':
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            st.markdown(f"**De:** {email.get('from', 'Expéditeur inconnu')}")
-            st.markdown(f"**À:** {email.get('to', 'Destinataire inconnu')}")
+            st.markdown(f"**De:** {clean_html_text(email.get('from'))}")
+            st.markdown(f"**À:** {clean_html_text(email.get('to'))}")
             
             try:
                 email_date = parse_email_date(email.get('date', ''))
@@ -562,8 +573,8 @@ elif st.session_state.current_view == 'detail':
         """, unsafe_allow_html=True)
         
         with st.form("reply_form_detail"):
-            st.markdown(f"**Répondre à:** {email.get('from', 'Expéditeur inconnu')}")
-            st.markdown(f"**Sujet:** Re: {email.get('subject', 'Pas de sujet')}")
+            st.markdown(f"**Répondre à:** {clean_html_text(email.get('from'))}")
+            st.markdown(f"**Sujet:** Re: {clean_html_text(email.get('subject'))}")
             
             user_prompt = st.text_input(
                 "💭 Instructions pour l'IA",
