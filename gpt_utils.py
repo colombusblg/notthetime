@@ -90,7 +90,7 @@ def generate_reply(email_body, user_prompt, email_db_id=None):
         
         # Prompt pour la génération de réponse
         prompt = f"""
-        Vous devez générer une réponse professionnelle à l'email suivant.
+        Vous devez générer une réponse à l'email suivant.
         
         Email original:
         {truncated_body}
@@ -100,7 +100,7 @@ def generate_reply(email_body, user_prompt, email_db_id=None):
         
         Générez une réponse polie, professionnelle et appropriée en français.
         La réponse doit être directe, claire et respectueuse.
-        N'incluez pas de formule de politesse d'ouverture comme "Cher..." car cela sera ajouté automatiquement.
+        Si le prompt vous le demande, incluez des formules de politesse d'ouverture et un ton et spécifique.
         
         Réponse:
         """
