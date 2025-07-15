@@ -26,7 +26,8 @@ def summarize_emails(emails):
         
         # Prompt pour le résumé
         prompt = f"""
-        Tu es assistant qui résumé les mails.
+        Veuillez résumer le(s) email(s) suivant(s) de manière concise et claire.
+        Identifiez les points clés, les actions requises et l'urgence si applicable.
         Répondez en français et de manière professionnelle.
         
         Emails à résumer:
@@ -41,7 +42,7 @@ def summarize_emails(emails):
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "Tu es un assistant qui résumé les mails."},
+                    {"role": "system", "content": "Vous êtes un assistant qui résume les emails de manière concise et professionnelle en français."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=500,
@@ -90,7 +91,7 @@ def generate_reply(email_body, user_prompt, email_db_id=None):
         
         # Prompt pour la génération de réponse
         prompt = f"""
-        Vous devez générer une réponse à l'email suivant.
+        Vous devez générer une réponse professionnelle à l'email suivant.
         
         Email original:
         {truncated_body}
@@ -100,7 +101,7 @@ def generate_reply(email_body, user_prompt, email_db_id=None):
         
         Générez une réponse polie, professionnelle et appropriée en français.
         La réponse doit être directe, claire et respectueuse.
-        Si le prompt vous le demande, incluez des formules de politesse d'ouverture et un ton et spécifique.
+        N'incluez pas de formule de politesse d'ouverture comme "Cher..." car cela sera ajouté automatiquement.
         
         Réponse:
         """
