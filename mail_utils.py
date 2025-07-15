@@ -12,19 +12,16 @@ def parse_email_date(date_str):
     """Parse une date d'email en objet datetime avec gestion complète des timezones"""
     try:
         if not date_str or date_str.strip() == "":
-            return datetime.now(timezone.utc)  # Retourner la date actuelle avec timezone UTC
+            return datetime.now(timezone.utc)
             
-        # Utiliser email.utils.parsedate_to_datetime pour une meilleure gestion des timezones
         try:
             parsed_date = email.utils.parsedate_to_datetime(date_str)
-            # Si la date n'a pas de timezone, ajouter UTC
             if parsed_date.tzinfo is None:
                 parsed_date = parsed_date.replace(tzinfo=timezone.utc)
             return parsed_date
         except:
             pass
         
-        # Fallback avec les formats manuels
         formats = [
             "%a, %d %b %Y %H:%M:%S %z",
             "%d %b %Y %H:%M:%S %z",
@@ -37,22 +34,29 @@ def parse_email_date(date_str):
         for fmt in formats:
             try:
                 parsed = datetime.strptime(date_str, fmt)
-                # Si pas de timezone dans le format, ajouter UTC
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 return parsed
             except ValueError:
                 continue
         
-        # Si aucun format ne fonctionne, retourner la date actuelle avec UTC
         return datetime.now(timezone.utc)
     except Exception:
         return datetime.now(timezone.utc)
 
-def fetch_emails_from_imap(since_date=None):
-    """Récupère les emails depuis IMAP avec filtre de date optionnel"""
+def get_gmail_categories():
+    """Retourne la liste des catégories Gmail avec leurs dossiers IMAP correspondants"""
+    return {
+        "Boîte de réception": "INBOX",
+        "Promotions": "[Gmail]/Category Promotions",
+        "Réseaux sociaux": "[Gmail]/Category Social", 
+        "Notifications": "[Gmail]/Category Updates",
+        "Forums": "[Gmail]/Category Forums"
+    }
+
+def fetch_emails_from_category(category_folder, since_date=None, limit=50):
+    """Récupère les emails d'une catégorie spécifique"""
     try:
-        # Récupérer les identifiants de l'utilisateur connecté
         from auth_utils import get_current_user_credentials
         credentials = get_current_user_credentials()
         if not credentials:
@@ -68,30 +72,41 @@ def fetch_emails_from_imap(since_date=None):
         # Connexion
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(username, password)
-        mail.select("inbox")
+        
+        # Lister tous les dossiers disponibles pour debug
+        # status, folders = mail.list()
+        # st.write(f"Dossiers disponibles: {[f.decode() for f in folders]}")
+        
+        # Sélectionner le dossier de la catégorie
+        try:
+            status, count = mail.select(category_folder)
+            if status != "OK":
+                st.warning(f"⚠️ Impossible d'accéder à la catégorie '{category_folder}'")
+                mail.logout()
+                return []
+        except Exception as e:
+            st.warning(f"⚠️ Catégorie '{category_folder}' non disponible: {str(e)}")
+            mail.logout()
+            return []
         
         # Construire la requête de recherche
         search_criteria = "ALL"
         if since_date:
-            # Convertir la date en format IMAP (DD-MMM-YYYY)
             if hasattr(since_date, 'strftime'):
                 date_str = since_date.strftime('%d-%b-%Y')
                 search_criteria = f'(SINCE {date_str})'
-            else:
-                # Si c'est déjà une string, l'utiliser directement
-                search_criteria = f'(SINCE {since_date})'
         
         # Rechercher les emails
         status, messages = mail.search(None, search_criteria)
         if status != "OK":
-            st.error(f"❌ Erreur lors de la recherche des emails avec critère : {search_criteria}")
+            mail.logout()
             return []
         
         email_ids = messages[0].split()
         
         emails = []
-        # Prendre les derniers emails (maximum 100)
-        for email_id in email_ids[-100:]:
+        # Prendre les derniers emails (limité)
+        for email_id in email_ids[-limit:]:
             try:
                 status, msg_data = mail.fetch(email_id, "(RFC822)")
                 if status != "OK":
@@ -121,13 +136,11 @@ def fetch_emails_from_imap(since_date=None):
                 
                 # Vérifier si l'email correspond au filtre de date
                 if since_date and hasattr(since_date, 'date'):
-                    # Convertir since_date en datetime avec timezone pour comparaison
                     if hasattr(since_date, 'tzinfo'):
                         since_datetime = since_date
                     else:
                         since_datetime = datetime.combine(since_date, datetime.min.time()).replace(tzinfo=timezone.utc)
                     
-                    # Comparer les dates (pas les heures)
                     if email_datetime.date() < since_datetime.date():
                         continue
                 
@@ -152,7 +165,7 @@ def fetch_emails_from_imap(since_date=None):
                         body = "Impossible de décoder le contenu"
                 
                 # Créer un ID unique pour l'email
-                email_unique_id = f"{from_email}_{subject}_{date}"
+                email_unique_id = f"{category_folder}_{from_email}_{subject}_{date}"
                 
                 emails.append({
                     "email_id": email_unique_id,
@@ -160,11 +173,11 @@ def fetch_emails_from_imap(since_date=None):
                     "to": to_email,
                     "subject": subject,
                     "date": date,
-                    "body": body
+                    "body": body,
+                    "category": category_folder
                 })
                 
             except Exception as e:
-                st.warning(f"⚠️ Erreur lors du traitement d'un email : {str(e)}")
                 continue
         
         mail.close()
@@ -176,64 +189,94 @@ def fetch_emails_from_imap(since_date=None):
         return emails
         
     except Exception as e:
-        st.error(f"❌ Erreur IMAP : {str(e)}")
+        st.error(f"❌ Erreur IMAP pour catégorie '{category_folder}': {str(e)}")
         return []
 
-def initialize_mails(force_sync=False, since_date=None):
-    """Initialise les emails - priorité à la DB, sync IMAP si nécessaire"""
+def fetch_all_categorized_emails(since_date=None, limit_per_category=50):
+    """Récupère les emails de toutes les catégories Gmail"""
+    all_emails = {}
+    categories = get_gmail_categories()
+    
+    total_emails = 0
+    
+    for category_name, folder_name in categories.items():
+        with st.spinner(f"📥 Chargement de '{category_name}'..."):
+            emails = fetch_emails_from_category(folder_name, since_date, limit_per_category)
+            all_emails[category_name] = emails
+            total_emails += len(emails)
+            
+            if emails:
+                st.success(f"✅ {len(emails)} emails chargés depuis '{category_name}'")
+            else:
+                st.info(f"📭 Aucun email dans '{category_name}'")
+    
+    st.success(f"🎉 Total: {total_emails} emails chargés depuis toutes les catégories")
+    return all_emails
+
+def fetch_emails_from_imap(since_date=None):
+    """Récupère les emails depuis IMAP (version simplifiée pour compatibilité)"""
+    # Pour compatibilité avec l'ancien code, récupère seulement la boîte de réception
+    return fetch_emails_from_category("INBOX", since_date, limit=100)
+
+def initialize_mails(force_sync=False, since_date=None, selected_categories=None):
+    """Initialise les emails par catégorie"""
     try:
-        # Import local pour éviter les imports circulaires
-        from database_utils import sync_emails_with_imap, get_user_emails
+        from database_utils import sync_emails_with_imap, get_user_emails_by_category
         
         user_id = st.session_state.get('user_id')
         if not user_id:
             st.error("❌ Utilisateur non authentifié")
-            return []
+            return {}
         
-        # Récupérer les emails depuis la base de données
-        db_emails = get_user_emails(user_id, since_date, limit=100)
+        # Si pas de catégories sélectionnées, prendre toutes
+        if not selected_categories:
+            selected_categories = list(get_gmail_categories().keys())
         
-        # Si pas d'emails en DB ou synchronisation forcée
-        if not db_emails or force_sync:
-            st.info("🔄 Synchronisation avec Gmail...")
+        all_emails = {}
+        
+        if force_sync:
+            # Forcer la synchronisation depuis Gmail
+            st.info("🔄 Synchronisation complète avec Gmail...")
             
-            # Récupérer depuis IMAP avec le filtre de date
-            imap_emails = fetch_emails_from_imap(since_date)
-            
-            if imap_emails:
-                # Synchroniser avec la base de données
-                synced_count = sync_emails_with_imap(user_id, imap_emails)
-                st.success(f"✅ {synced_count} emails synchronisés")
+            for category in selected_categories:
+                folder_name = get_gmail_categories()[category]
+                emails = fetch_emails_from_category(folder_name, since_date, limit=50)
                 
-                # Récupérer les emails mis à jour depuis la DB
-                db_emails = get_user_emails(user_id, since_date, limit=100)
+                if emails:
+                    # Ajouter la catégorie à chaque email
+                    for email in emails:
+                        email['category'] = category
+                    
+                    # Synchroniser avec la base de données
+                    synced_count = sync_emails_with_imap(user_id, emails)
+                    
+                all_emails[category] = emails
+        else:
+            # Charger depuis la base de données d'abord
+            try:
+                cached_emails = get_user_emails_by_category(user_id, since_date, selected_categories)
+                if cached_emails:
+                    all_emails = cached_emails
+                    st.success("✅ Emails chargés depuis la base de données")
+                else:
+                    # Pas de cache, charger depuis Gmail
+                    st.info("📭 Aucun email en cache, chargement depuis Gmail...")
+                    return initialize_mails(force_sync=True, since_date=since_date, selected_categories=selected_categories)
+            except:
+                # Fonction pas encore implémentée, charger depuis Gmail
+                return initialize_mails(force_sync=True, since_date=since_date, selected_categories=selected_categories)
         
-        # Convertir le format DB vers le format attendu par l'app
-        emails = []
-        for db_email in db_emails:
-            emails.append({
-                "db_id": db_email.get("id"),  # ID de la base de données
-                "from": db_email.get("sender", ""),
-                "to": db_email.get("recipient", ""),
-                "subject": db_email.get("subject", ""),
-                "date": db_email.get("date_received", ""),
-                "body": db_email.get("body", ""),
-                "is_processed": db_email.get("is_processed", False)
-            })
-        
-        return emails
+        return all_emails
         
     except Exception as e:
-        st.error(f"❌ Erreur lors de l'initialisation : {str(e)}")
-        return []
+        st.error(f"❌ Erreur lors de l'initialisation par catégorie : {str(e)}")
+        return {}
 
 def send_email(to, subject, body):
     """Envoie un email via SMTP"""
     try:
-        # Import local pour éviter les imports circulaires
         from auth_utils import get_current_user_credentials
         
-        # Récupérer les identifiants de l'utilisateur connecté
         credentials = get_current_user_credentials()
         if not credentials:
             st.error("❌ Impossible de récupérer les identifiants utilisateur")
