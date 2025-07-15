@@ -1,16 +1,28 @@
 import streamlit as st
 from supabase import create_client, Client
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import hashlib
 from config import SUPABASE_URL, SUPABASE_KEY
+import email.utils
 
 def parse_email_date(date_str):
-    """Parse une date d'email en objet datetime"""
+    """Parse une date d'email en objet datetime avec gestion des timezones"""
     try:
         if not date_str or date_str.strip() == "":
-            return datetime.now()  # Retourner la date actuelle si pas de date
+            return datetime.now(timezone.utc)  # Retourner la date actuelle avec timezone UTC
             
+        # Utiliser email.utils.parsedate_to_datetime pour une meilleure gestion des timezones
+        try:
+            parsed_date = email.utils.parsedate_to_datetime(date_str)
+            # Si la date n'a pas de timezone, ajouter UTC
+            if parsed_date.tzinfo is None:
+                parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+            return parsed_date
+        except:
+            pass
+        
+        # Fallback avec les formats manuels
         formats = [
             "%a, %d %b %Y %H:%M:%S %z",
             "%d %b %Y %H:%M:%S %z",
@@ -22,14 +34,18 @@ def parse_email_date(date_str):
         
         for fmt in formats:
             try:
-                return datetime.strptime(date_str, fmt)
+                parsed = datetime.strptime(date_str, fmt)
+                # Si pas de timezone dans le format, ajouter UTC
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
             except ValueError:
                 continue
         
-        # Si aucun format ne fonctionne, retourner la date actuelle
-        return datetime.now()
+        # Si aucun format ne fonctionne, retourner la date actuelle avec UTC
+        return datetime.now(timezone.utc)
     except Exception:
-        return datetime.now()
+        return datetime.now(timezone.utc)
 
 # Client Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -46,12 +62,14 @@ def generate_email_id(email_data):
 def save_email_to_supabase(user_id, email_data, email_id=None):
     """Sauvegarde un email dans la base de données Supabase"""
     try:
-        # Parser la date - maintenant garantie de ne pas être None
+        # Parser la date - maintenant garantie d'avoir une timezone
         date_received = parse_email_date(email_data.get('date', ''))
         
-        # S'assurer que la date n'est jamais None
+        # S'assurer que la date n'est jamais None et a une timezone
         if date_received is None:
-            date_received = datetime.now()
+            date_received = datetime.now(timezone.utc)
+        elif date_received.tzinfo is None:
+            date_received = date_received.replace(tzinfo=timezone.utc)
         
         # Générer un ID unique si pas fourni
         if not email_id:
@@ -64,10 +82,10 @@ def save_email_to_supabase(user_id, email_data, email_id=None):
             'sender': email_data.get('from', ''),
             'recipient': email_data.get('to', ''),
             'body': email_data.get('body', ''),
-            'date_received': date_received.isoformat(),  # Toujours une date valide
+            'date_received': date_received.isoformat(),  # Toujours une date valide avec timezone
             'is_processed': False,
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'updated_at': datetime.now(timezone.utc).isoformat()
         }
         
         # Vérifier si l'email existe déjà
@@ -87,16 +105,27 @@ def save_email_to_supabase(user_id, email_data, email_id=None):
         return None
 
 def get_user_emails_from_supabase(user_id, since_date=None, limit=50):
-    """Récupère les emails d'un utilisateur depuis Supabase"""
+    """Récupère les emails d'un utilisateur depuis Supabase avec gestion correcte des dates"""
     try:
         query = supabase.table('user_emails').select('*').eq('user_id', user_id).order('date_received', desc=True)
         
         if since_date:
-            # Convertir la date en datetime si c'est un objet date
-            if hasattr(since_date, 'isoformat'):
-                since_date_str = since_date.isoformat()
+            # Convertir la date en datetime avec timezone si nécessaire
+            if hasattr(since_date, 'date'):  # C'est un objet datetime
+                if since_date.tzinfo is None:
+                    # Ajouter timezone UTC si pas de timezone
+                    since_datetime = since_date.replace(tzinfo=timezone.utc)
+                else:
+                    since_datetime = since_date
+                since_date_str = since_datetime.isoformat()
+            elif hasattr(since_date, 'isoformat'):  # C'est un objet date
+                # Convertir date en datetime avec timezone UTC au début de la journée
+                since_datetime = datetime.combine(since_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+                since_date_str = since_datetime.isoformat()
             else:
+                # C'est déjà une string
                 since_date_str = since_date
+            
             query = query.gte('date_received', since_date_str)
         
         if limit:
@@ -121,7 +150,7 @@ def save_email_summary(user_id, email_id, summary_text):
             'user_id': user_id,
             'email_id': email_id,
             'summary_text': summary_text,
-            'created_at': datetime.now().isoformat()
+            'created_at': datetime.now(timezone.utc).isoformat()
         }
         
         result = supabase.table('email_summaries').insert(summary_record).execute()
@@ -152,6 +181,8 @@ def get_email_reply(email_id):
 def save_email_reply(user_id, email_id, user_prompt, generated_reply, final_reply, was_sent=False):
     """Sauvegarde une réponse dans la base de données"""
     try:
+        current_time = datetime.now(timezone.utc).isoformat()
+        
         reply_record = {
             'user_id': user_id,
             'email_id': email_id,
@@ -159,8 +190,8 @@ def save_email_reply(user_id, email_id, user_prompt, generated_reply, final_repl
             'generated_reply': generated_reply,
             'final_reply': final_reply,
             'was_sent': was_sent,
-            'sent_at': datetime.now().isoformat() if was_sent else None,
-            'created_at': datetime.now().isoformat()
+            'sent_at': current_time if was_sent else None,
+            'created_at': current_time
         }
         
         result = supabase.table('email_replies').insert(reply_record).execute()
@@ -175,7 +206,7 @@ def update_reply_sent_status(reply_id):
     try:
         result = supabase.table('email_replies').update({
             'was_sent': True,
-            'sent_at': datetime.now().isoformat()
+            'sent_at': datetime.now(timezone.utc).isoformat()
         }).eq('id', reply_id).execute()
         
         return result.data[0] if result.data else None
@@ -203,12 +234,14 @@ def get_user_preferences(user_id):
 def save_user_preference(user_id, preference_key, preference_value):
     """Sauvegarde une préférence utilisateur"""
     try:
+        current_time = datetime.now(timezone.utc).isoformat()
+        
         preference_record = {
             'user_id': user_id,
             'preference_key': preference_key,
             'preference_value': preference_value,
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
+            'created_at': current_time,
+            'updated_at': current_time
         }
         
         # Vérifier si la préférence existe déjà
@@ -218,7 +251,7 @@ def save_user_preference(user_id, preference_key, preference_value):
             # Mettre à jour la préférence existante
             result = supabase.table('user_preferences').update({
                 'preference_value': preference_value,
-                'updated_at': datetime.now().isoformat()
+                'updated_at': current_time
             }).eq('id', existing.data[0]['id']).execute()
             return existing.data[0]['id']
         else:
@@ -257,7 +290,7 @@ def mark_email_as_processed(email_id):
     try:
         result = supabase.table('user_emails').update({
             'is_processed': True,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': datetime.now(timezone.utc).isoformat()
         }).eq('id', email_id).execute()
         
         return result.data[0] if result.data else None

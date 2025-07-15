@@ -13,7 +13,7 @@ from database_utils import (
     get_user_statistics,
     mark_email_as_processed
 )
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 st.set_page_config(page_title="Assistant Mail", layout="centered")
 
@@ -82,13 +82,13 @@ if 'processed_mails' not in st.session_state or force_reload or not use_cache:
                     st.success(f"✅ {len(cached_mails)} emails chargés depuis la base de données")
                 else:
                     st.info("📭 Aucun email en cache, chargement depuis Gmail...")
-                    # Pas de cache, charger depuis Gmail
-                    raw_mails = initialize_mails(force_sync=True)
+                    # Pas de cache, charger depuis Gmail avec le filtre de date
+                    raw_mails = initialize_mails(force_sync=True, since_date=selected_date)
                     st.session_state.processed_mails = raw_mails
             else:
                 # Charger depuis Gmail et sauvegarder dans Supabase
                 st.info("📧 Chargement des emails depuis Gmail...")
-                raw_mails = initialize_mails(force_sync=True)
+                raw_mails = initialize_mails(force_sync=True, since_date=selected_date)
                 st.session_state.processed_mails = raw_mails
                 
         except Exception as e:
@@ -104,13 +104,22 @@ if not mails:
     st.markdown("- Vérifier que vous avez bien des emails dans votre boîte de réception")
     st.stop()
 
-# Filtrer les mails selon la date sélectionnée
+# Filtrer les mails selon la date sélectionnée avec gestion timezone
 filtered_mails = []
 for mail in mails:
     mail_date_str = mail.get("date", "")
     mail_datetime = parse_email_date(mail_date_str)
+    
     if mail_datetime is None:
         continue
+    
+    # Convertir selected_date en datetime avec timezone pour comparaison
+    selected_datetime = datetime.combine(selected_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+    
+    # Comparer les dates en s'assurant que les deux ont des timezones
+    if mail_datetime.tzinfo is None:
+        mail_datetime = mail_datetime.replace(tzinfo=timezone.utc)
+    
     if mail_datetime.date() >= selected_date:
         filtered_mails.append(mail)
 
@@ -131,18 +140,19 @@ selected_mail = filtered_mails[selected_index]
 st.markdown("### 📌 Résumé du mail")
 
 # Vérifier s'il y a déjà un résumé en cache
-cached_summary = get_email_summary(user_id, selected_mail['db_id'])
+cached_summary = get_email_summary(user_id, selected_mail.get('db_id'))
 
-if cached_summary and cached_summary['summary_text'] and not cached_summary['summary_text'].startswith('Erreur'):
+if cached_summary and cached_summary.get('summary_text') and not cached_summary['summary_text'].startswith('Erreur'):
     st.info(f"📋 Résumé en cache : {cached_summary['summary_text']}")
-    st.caption(f"Généré le {cached_summary['created_at']}")
+    st.caption(f"Généré le {cached_summary.get('created_at', 'Date inconnue')}")
 else:
     with st.spinner("🤖 Génération du résumé..."):
         summary = summarize_emails([selected_mail])
         
         if summary and not summary.startswith('Erreur'):
             # Sauvegarder le résumé dans Supabase
-            save_email_summary(user_id, selected_mail['db_id'], summary)
+            if selected_mail.get('db_id'):
+                save_email_summary(user_id, selected_mail['db_id'], summary)
             st.info(summary)
         else:
             st.error(f"❌ Échec de la génération du résumé : {summary}")
@@ -183,10 +193,11 @@ with st.form("reply_form"):
     if generate and user_prompt:
         with st.spinner("🤖 GPT rédige une réponse..."):
             # Passer le db_id à la fonction generate_reply
-            reply = generate_reply(selected_mail["body"], user_prompt, selected_mail['db_id'])
+            reply = generate_reply(selected_mail["body"], user_prompt, selected_mail.get('db_id'))
             st.session_state["generated_reply"] = reply
             # Sauvegarder la réponse générée dans Supabase
-            save_email_reply(user_id, selected_mail['db_id'], user_prompt, reply, reply, False)
+            if selected_mail.get('db_id'):
+                save_email_reply(user_id, selected_mail['db_id'], user_prompt, reply, reply, False)
             st.rerun()
 
     if send and st.session_state.get("generated_reply"):
@@ -199,9 +210,10 @@ with st.form("reply_form"):
             )
             if success:
                 # Sauvegarder la réponse envoyée dans Supabase
-                save_email_reply(user_id, selected_mail['db_id'], user_prompt, st.session_state["generated_reply"], final_reply, True)
-                # Marquer l'email comme traité
-                mark_email_as_processed(selected_mail['db_id'])
+                if selected_mail.get('db_id'):
+                    save_email_reply(user_id, selected_mail['db_id'], user_prompt, st.session_state["generated_reply"], final_reply, True)
+                    # Marquer l'email comme traité
+                    mark_email_as_processed(selected_mail['db_id'])
                 st.success("✅ Réponse envoyée avec succès !")
                 del st.session_state["generated_reply"]
                 st.rerun()

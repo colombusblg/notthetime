@@ -4,16 +4,27 @@ import smtplib
 from email.header import decode_header
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timezone
 import streamlit as st
+import email.utils
 
 def parse_email_date(date_str):
-    """Parse une date d'email en objet datetime"""
+    """Parse une date d'email en objet datetime avec gestion complète des timezones"""
     try:
         if not date_str or date_str.strip() == "":
-            return datetime.now()  # Retourner la date actuelle si pas de date
+            return datetime.now(timezone.utc)  # Retourner la date actuelle avec timezone UTC
             
-        # Formats de date email courants
+        # Utiliser email.utils.parsedate_to_datetime pour une meilleure gestion des timezones
+        try:
+            parsed_date = email.utils.parsedate_to_datetime(date_str)
+            # Si la date n'a pas de timezone, ajouter UTC
+            if parsed_date.tzinfo is None:
+                parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+            return parsed_date
+        except:
+            pass
+        
+        # Fallback avec les formats manuels
         formats = [
             "%a, %d %b %Y %H:%M:%S %z",
             "%d %b %Y %H:%M:%S %z",
@@ -25,17 +36,21 @@ def parse_email_date(date_str):
         
         for fmt in formats:
             try:
-                return datetime.strptime(date_str, fmt)
+                parsed = datetime.strptime(date_str, fmt)
+                # Si pas de timezone dans le format, ajouter UTC
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
             except ValueError:
                 continue
         
-        # Si aucun format ne fonctionne, retourner la date actuelle
-        return datetime.now()
+        # Si aucun format ne fonctionne, retourner la date actuelle avec UTC
+        return datetime.now(timezone.utc)
     except Exception:
-        return datetime.now()
+        return datetime.now(timezone.utc)
 
-def fetch_emails_from_imap():
-    """Récupère les emails depuis IMAP"""
+def fetch_emails_from_imap(since_date=None):
+    """Récupère les emails depuis IMAP avec filtre de date optionnel"""
     try:
         # Récupérer les identifiants de l'utilisateur connecté
         from auth_utils import get_current_user_credentials
@@ -55,10 +70,21 @@ def fetch_emails_from_imap():
         mail.login(username, password)
         mail.select("inbox")
         
-        # Rechercher les emails récents (les 100 derniers)
-        status, messages = mail.search(None, "ALL")
+        # Construire la requête de recherche
+        search_criteria = "ALL"
+        if since_date:
+            # Convertir la date en format IMAP (DD-MMM-YYYY)
+            if hasattr(since_date, 'strftime'):
+                date_str = since_date.strftime('%d-%b-%Y')
+                search_criteria = f'(SINCE {date_str})'
+            else:
+                # Si c'est déjà une string, l'utiliser directement
+                search_criteria = f'(SINCE {since_date})'
+        
+        # Rechercher les emails
+        status, messages = mail.search(None, search_criteria)
         if status != "OK":
-            st.error("❌ Erreur lors de la recherche des emails")
+            st.error(f"❌ Erreur lors de la recherche des emails avec critère : {search_criteria}")
             return []
         
         email_ids = messages[0].split()
@@ -89,6 +115,21 @@ def fetch_emails_from_imap():
                 from_email = msg.get("From", "Expéditeur inconnu")
                 to_email = msg.get("To", "")
                 date = msg.get("Date", "")
+                
+                # Parser la date pour vérification
+                email_datetime = parse_email_date(date)
+                
+                # Vérifier si l'email correspond au filtre de date
+                if since_date and hasattr(since_date, 'date'):
+                    # Convertir since_date en datetime avec timezone pour comparaison
+                    if hasattr(since_date, 'tzinfo'):
+                        since_datetime = since_date
+                    else:
+                        since_datetime = datetime.combine(since_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+                    
+                    # Comparer les dates (pas les heures)
+                    if email_datetime.date() < since_datetime.date():
+                        continue
                 
                 # Extraire le corps du message
                 body = ""
@@ -138,7 +179,7 @@ def fetch_emails_from_imap():
         st.error(f"❌ Erreur IMAP : {str(e)}")
         return []
 
-def initialize_mails(force_sync=False):
+def initialize_mails(force_sync=False, since_date=None):
     """Initialise les emails - priorité à la DB, sync IMAP si nécessaire"""
     try:
         # Import local pour éviter les imports circulaires
@@ -150,14 +191,14 @@ def initialize_mails(force_sync=False):
             return []
         
         # Récupérer les emails depuis la base de données
-        db_emails = get_user_emails(user_id, limit=100)
+        db_emails = get_user_emails(user_id, since_date, limit=100)
         
         # Si pas d'emails en DB ou synchronisation forcée
         if not db_emails or force_sync:
             st.info("🔄 Synchronisation avec Gmail...")
             
-            # Récupérer depuis IMAP
-            imap_emails = fetch_emails_from_imap()
+            # Récupérer depuis IMAP avec le filtre de date
+            imap_emails = fetch_emails_from_imap(since_date)
             
             if imap_emails:
                 # Synchroniser avec la base de données
@@ -165,7 +206,7 @@ def initialize_mails(force_sync=False):
                 st.success(f"✅ {synced_count} emails synchronisés")
                 
                 # Récupérer les emails mis à jour depuis la DB
-                db_emails = get_user_emails(user_id, limit=100)
+                db_emails = get_user_emails(user_id, since_date, limit=100)
         
         # Convertir le format DB vers le format attendu par l'app
         emails = []
@@ -226,3 +267,7 @@ def send_email(to, subject, body):
     except Exception as e:
         st.error(f"❌ Erreur lors de l'envoi : {str(e)}")
         return False
+
+def get_emails_since(since_date=None):
+    """Fonction helper pour récupérer les emails depuis une date donnée"""
+    return fetch_emails_from_imap(since_date)
