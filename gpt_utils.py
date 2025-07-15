@@ -26,8 +26,7 @@ def summarize_emails(emails):
         
         # Prompt pour le résumé
         prompt = f"""
-        Veuillez résumer le(s) email(s) suivant(s) de manière concise et claire.
-        Identifiez les points clés, les actions requises et l'urgence si applicable.
+        Tu es assistant qui résumé les mails.
         Répondez en français et de manière professionnelle.
         
         Emails à résumer:
@@ -42,7 +41,7 @@ def summarize_emails(emails):
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "Vous êtes un assistant qui résume les emails de manière concise et professionnelle en français."},
+                    {"role": "system", "content": "Tu es un assistant qui résumé les mails."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=500,
