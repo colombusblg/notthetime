@@ -10,6 +10,9 @@ import streamlit as st
 def parse_email_date(date_str):
     """Parse une date d'email en objet datetime"""
     try:
+        if not date_str or date_str.strip() == "":
+            return datetime.now()  # Retourner la date actuelle si pas de date
+            
         # Formats de date email courants
         formats = [
             "%a, %d %b %Y %H:%M:%S %z",
@@ -26,13 +29,13 @@ def parse_email_date(date_str):
             except ValueError:
                 continue
         
-        # Si aucun format ne fonctionne, retourner None
-        return None
+        # Si aucun format ne fonctionne, retourner la date actuelle
+        return datetime.now()
     except Exception:
-        return None
+        return datetime.now()
 
 def fetch_emails_from_imap():
-    """Récupère les emails depuis IMAP (fonction helper)"""
+    """Récupère les emails depuis IMAP"""
     try:
         # Récupérer les identifiants de l'utilisateur connecté
         from auth_utils import get_current_user_credentials
@@ -52,7 +55,7 @@ def fetch_emails_from_imap():
         mail.login(username, password)
         mail.select("inbox")
         
-        # Rechercher les emails
+        # Rechercher les emails récents (les 100 derniers)
         status, messages = mail.search(None, "ALL")
         if status != "OK":
             st.error("❌ Erreur lors de la recherche des emails")
@@ -61,8 +64,8 @@ def fetch_emails_from_imap():
         email_ids = messages[0].split()
         
         emails = []
-        # Prendre les 50 derniers emails (ou ajuster selon vos besoins)
-        for email_id in email_ids[-50:]:
+        # Prendre les derniers emails (maximum 100)
+        for email_id in email_ids[-100:]:
             try:
                 status, msg_data = mail.fetch(email_id, "(RFC822)")
                 if status != "OK":
@@ -71,41 +74,64 @@ def fetch_emails_from_imap():
                 msg = email.message_from_bytes(msg_data[0][1])
                 
                 # Extraire les informations
-                subject = decode_header(msg["Subject"])[0][0] if msg["Subject"] else "Pas de sujet"
-                if isinstance(subject, bytes):
-                    subject = subject.decode()
+                subject = ""
+                if msg["Subject"]:
+                    subject_parts = decode_header(msg["Subject"])
+                    for part, encoding in subject_parts:
+                        if isinstance(part, bytes):
+                            subject += part.decode(encoding or 'utf-8', errors='ignore')
+                        else:
+                            subject += part
+                
+                if not subject:
+                    subject = "Pas de sujet"
                     
                 from_email = msg.get("From", "Expéditeur inconnu")
-                date = msg.get("Date", "Date inconnue")
+                to_email = msg.get("To", "")
+                date = msg.get("Date", "")
                 
-                # Extraire le corps
+                # Extraire le corps du message
                 body = ""
                 if msg.is_multipart():
                     for part in msg.walk():
                         if part.get_content_type() == "text/plain":
                             try:
-                                body = part.get_payload(decode=True).decode()
-                                break
+                                payload = part.get_payload(decode=True)
+                                if payload:
+                                    body = payload.decode('utf-8', errors='ignore')
+                                    break
                             except:
                                 continue
                 else:
                     try:
-                        body = msg.get_payload(decode=True).decode()
+                        payload = msg.get_payload(decode=True)
+                        if payload:
+                            body = payload.decode('utf-8', errors='ignore')
                     except:
                         body = "Impossible de décoder le contenu"
                 
+                # Créer un ID unique pour l'email
+                email_unique_id = f"{from_email}_{subject}_{date}"
+                
                 emails.append({
+                    "email_id": email_unique_id,
                     "from": from_email,
+                    "to": to_email,
                     "subject": subject,
                     "date": date,
                     "body": body
                 })
+                
             except Exception as e:
                 st.warning(f"⚠️ Erreur lors du traitement d'un email : {str(e)}")
                 continue
         
         mail.close()
         mail.logout()
+        
+        # Trier les emails par date (plus récents en premier)
+        emails.sort(key=lambda x: parse_email_date(x.get('date', '')), reverse=True)
+        
         return emails
         
     except Exception as e:
@@ -124,7 +150,7 @@ def initialize_mails(force_sync=False):
             return []
         
         # Récupérer les emails depuis la base de données
-        db_emails = get_user_emails(user_id)
+        db_emails = get_user_emails(user_id, limit=100)
         
         # Si pas d'emails en DB ou synchronisation forcée
         if not db_emails or force_sync:
@@ -139,14 +165,15 @@ def initialize_mails(force_sync=False):
                 st.success(f"✅ {synced_count} emails synchronisés")
                 
                 # Récupérer les emails mis à jour depuis la DB
-                db_emails = get_user_emails(user_id)
+                db_emails = get_user_emails(user_id, limit=100)
         
         # Convertir le format DB vers le format attendu par l'app
         emails = []
         for db_email in db_emails:
             emails.append({
-                "id": db_email.get("id"),  # ID de la base de données
+                "db_id": db_email.get("id"),  # ID de la base de données
                 "from": db_email.get("sender", ""),
+                "to": db_email.get("recipient", ""),
                 "subject": db_email.get("subject", ""),
                 "date": db_email.get("date_received", ""),
                 "body": db_email.get("body", ""),

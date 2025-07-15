@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime
 import uuid
+import hashlib
 from config import SUPABASE_URL, SUPABASE_KEY
 
 def parse_email_date(date_str):
@@ -33,6 +34,15 @@ def parse_email_date(date_str):
 # Client Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def generate_email_id(email_data):
+    """Génère un ID unique pour un email basé sur son contenu"""
+    try:
+        # Utiliser les informations principales pour créer un hash unique
+        content = f"{email_data.get('from', '')}{email_data.get('subject', '')}{email_data.get('date', '')}{email_data.get('body', '')[:100]}"
+        return hashlib.md5(content.encode()).hexdigest()
+    except Exception:
+        return str(uuid.uuid4())
+
 def save_email_to_supabase(user_id, email_data, email_id=None):
     """Sauvegarde un email dans la base de données Supabase"""
     try:
@@ -43,9 +53,13 @@ def save_email_to_supabase(user_id, email_data, email_id=None):
         if date_received is None:
             date_received = datetime.now()
         
+        # Générer un ID unique si pas fourni
+        if not email_id:
+            email_id = generate_email_id(email_data)
+        
         email_record = {
             'user_id': user_id,
-            'email_id': email_id or str(uuid.uuid4()),
+            'email_id': email_id,
             'subject': email_data.get('subject', ''),
             'sender': email_data.get('from', ''),
             'recipient': email_data.get('to', ''),
@@ -125,6 +139,14 @@ def get_email_summary(user_id, email_id):
         
     except Exception as e:
         st.error(f"Erreur lors de la récupération du résumé : {str(e)}")
+        return None
+
+def get_email_reply(email_id):
+    """Récupère une réponse d'email depuis la base de données"""
+    try:
+        result = supabase.table('email_replies').select('*').eq('email_id', email_id).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
         return None
 
 def save_email_reply(user_id, email_id, user_prompt, generated_reply, final_reply, was_sent=False):
@@ -218,47 +240,4 @@ def get_user_statistics(user_id):
         summaries_count = supabase.table('email_summaries').select('id', count='exact').eq('user_id', user_id).execute()
         
         # Nombre de réponses envoyées
-        replies_sent_count = supabase.table('email_replies').select('id', count='exact').eq('user_id', user_id).eq('was_sent', True).execute()
-        
-        return {
-            'total_emails': emails_count.count or 0,
-            'summaries_generated': summaries_count.count or 0,
-            'replies_sent': replies_sent_count.count or 0
-        }
-        
-    except Exception as e:
-        st.error(f"Erreur lors de la récupération des statistiques : {str(e)}")
-        return {'total_emails': 0, 'summaries_generated': 0, 'replies_sent': 0}
-
-def mark_email_as_processed(email_id):
-    """Marque un email comme traité"""
-    try:
-        result = supabase.table('user_emails').update({
-            'is_processed': True,
-            'updated_at': datetime.now().isoformat()
-        }).eq('id', email_id).execute()
-        
-        return result.data[0] if result.data else None
-        
-    except Exception as e:
-        st.error(f"Erreur lors de la mise à jour : {str(e)}")
-        return None
-
-def sync_emails_with_imap(user_id, imap_emails):
-    """Synchronise les emails IMAP avec la base de données"""
-    try:
-        synced_count = 0
-        
-        for email_data in imap_emails:
-            # Créer un ID unique basé sur le contenu de l'email
-            email_unique_id = f"{email_data.get('from', '')}_{email_data.get('subject', '')}_{email_data.get('date', '')}"
-            
-            saved_id = save_email_to_supabase(user_id, email_data, email_unique_id)
-            if saved_id:
-                synced_count += 1
-        
-        return synced_count
-        
-    except Exception as e:
-        st.error(f"Erreur lors de la synchronisation : {str(e)}")
-        return 0
+        replies_sent_count = supabase.table('email_replies').select('id', count='exact').eq('user_id', user_id).eq('was_sent', True).

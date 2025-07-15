@@ -62,12 +62,13 @@ with col2:
     force_reload = st.button("🔄 Recharger depuis Gmail")
 
 # Initialisation des mails
-if 'processed_mails' not in st.session_state or force_reload:
+if 'processed_mails' not in st.session_state or force_reload or not use_cache:
     with st.spinner("🔄 Chargement des mails..."):
         try:
             if use_cache and not force_reload:
                 # Charger depuis Supabase
-                cached_mails = get_user_emails_from_supabase(user_id, selected_date)
+                st.info("📥 Chargement des emails depuis la base de données...")
+                cached_mails = get_user_emails_from_supabase(user_id, selected_date, limit=100)
                 if cached_mails:
                     # Convertir le format Supabase vers le format attendu
                     st.session_state.processed_mails = []
@@ -82,27 +83,18 @@ if 'processed_mails' not in st.session_state or force_reload:
                             'is_processed': mail['is_processed']
                         }
                         st.session_state.processed_mails.append(processed_mail)
+                    st.success(f"✅ {len(cached_mails)} emails chargés depuis la base de données")
                 else:
+                    st.info("📭 Aucun email en cache, chargement depuis Gmail...")
                     # Pas de cache, charger depuis Gmail
-                    raw_mails = initialize_mails()
-                    st.session_state.processed_mails = []
-                    for mail in raw_mails:
-                        # Sauvegarder dans Supabase
-                        db_id = save_email_to_supabase(user_id, mail)
-                        if db_id:
-                            mail['db_id'] = db_id
-                            st.session_state.processed_mails.append(mail)
+                    raw_mails = initialize_mails(force_sync=True)
+                    st.session_state.processed_mails = raw_mails
             else:
                 # Charger depuis Gmail et sauvegarder dans Supabase
-                raw_mails = initialize_mails()
-                st.session_state.processed_mails = []
-                for mail in raw_mails:
-                    # Sauvegarder dans Supabase
-                    db_id = save_email_to_supabase(user_id, mail)
-                    if db_id:
-                        mail['db_id'] = db_id
-                        st.session_state.processed_mails.append(mail)
-                        
+                st.info("📧 Chargement des emails depuis Gmail...")
+                raw_mails = initialize_mails(force_sync=True)
+                st.session_state.processed_mails = raw_mails
+                
         except Exception as e:
             st.error(f"❌ Erreur lors du chargement des mails: {str(e)}")
             st.session_state.processed_mails = []
@@ -110,7 +102,23 @@ if 'processed_mails' not in st.session_state or force_reload:
 mails = st.session_state.processed_mails
 
 if not mails:
-    st.warning("Aucun mail trouvé.")
+    st.warning("Aucun mail trouvé. Essayez de :")
+    st.markdown("- Vérifier votre connexion Gmail")
+    st.markdown("- Cliquer sur 'Recharger depuis Gmail'")
+    st.markdown("- Vérifier que vous avez bien des emails dans votre boîte de réception")
+    
+    # Bouton de debug
+    if st.button("🔍 Debug - Tester la connexion"):
+        from auth_utils import test_gmail_connection, get_current_user_credentials
+        creds = get_current_user_credentials()
+        if creds:
+            if test_gmail_connection(creds['email'], creds['password']):
+                st.success("✅ Connexion Gmail OK")
+            else:
+                st.error("❌ Problème de connexion Gmail")
+        else:
+            st.error("❌ Pas d'identifiants trouvés")
+    
     st.stop()
 
 # Filtrer les mails selon la date sélectionnée
@@ -125,6 +133,7 @@ for mail in mails:
 
 if not filtered_mails:
     st.warning(f"Aucun mail trouvé depuis le {selected_date.strftime('%d %b %Y')}.")
+    st.info("Essayez de sélectionner une date antérieure ou rechargez depuis Gmail.")
     st.stop()
 
 # Afficher le nombre de mails trouvés
@@ -154,6 +163,7 @@ else:
 # Affichage du contenu complet
 with st.expander("📄 Afficher le contenu complet du mail"):
     st.markdown(f"**De:** {selected_mail['from']}")
+    st.markdown(f"**À:** {selected_mail.get('to', 'N/A')}")
     st.markdown(f"**Sujet:** {selected_mail['subject']}")
     st.markdown(f"**Date:** {selected_mail['date']}")
     st.markdown(f"**Statut:** {'✅ Traité' if selected_mail.get('is_processed') else '⏳ En attente'}")
