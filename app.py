@@ -153,6 +153,45 @@ if not filtered_mails:
 # Afficher le nombre de mails trouvés
 st.info(f"📊 {len(filtered_mails)} mail(s) trouvé(s) depuis le {selected_date.strftime('%d %b %Y')}")
 
+# Bouton de debug toujours accessible
+with st.expander("🔧 Debug & Tests"):
+    if st.button("🔍 Tester les connexions"):
+        from auth_utils import test_gmail_connection, get_current_user_credentials
+        from config import OPENAI_API_KEY
+        import openai
+        
+        st.write("**Test Gmail :**")
+        creds = get_current_user_credentials()
+        if creds:
+            if test_gmail_connection(creds['email'], creds['password']):
+                st.success("✅ Connexion Gmail OK")
+            else:
+                st.error("❌ Problème de connexion Gmail")
+        else:
+            st.error("❌ Pas d'identifiants trouvés")
+        
+        st.write("**Test OpenAI :**")
+        if OPENAI_API_KEY:
+            try:
+                client = openai.OpenAI(api_key=OPENAI_API_KEY)
+                test_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": "Dis bonjour"}],
+                    max_tokens=10
+                )
+                st.success("✅ API OpenAI OK")
+                st.write(f"Réponse test : {test_response.choices[0].message.content}")
+            except Exception as e:
+                st.error(f"❌ Problème API OpenAI : {str(e)}")
+        else:
+            st.error("❌ Clé API OpenAI manquante")
+    
+    st.write("**Informations système :**")
+    st.write(f"- Nombre total de mails : {len(mails)}")
+    st.write(f"- Mails filtrés : {len(filtered_mails)}")
+    st.write(f"- Utilisateur connecté : {user_email}")
+    st.write(f"- Date de filtrage : {selected_date}")
+
 # Sélection du mail
 mail_options = [f"{i+1}. {mail['subject']} – {mail['from']}" for i, mail in enumerate(filtered_mails)]
 selected_index = st.selectbox("✉️ Choisissez un mail à traiter :", range(len(mail_options)), format_func=lambda i: mail_options[i])
