@@ -14,10 +14,6 @@ from database_utils import (
     mark_email_as_processed
 )
 from datetime import datetime, date
-import os
-
-# Configuration OpenAI
-os.environ["OPENAI_API_KEY"] = st.secrets.get("OPENAI_API_KEY", "")
 
 st.set_page_config(page_title="Assistant Mail", layout="centered")
 
@@ -110,6 +106,9 @@ if not mails:
     # Bouton de debug
     if st.button("🔍 Debug - Tester la connexion"):
         from auth_utils import test_gmail_connection, get_current_user_credentials
+        from config import OPENAI_API_KEY
+        import openai
+        
         creds = get_current_user_credentials()
         if creds:
             if test_gmail_connection(creds['email'], creds['password']):
@@ -118,6 +117,21 @@ if not mails:
                 st.error("❌ Problème de connexion Gmail")
         else:
             st.error("❌ Pas d'identifiants trouvés")
+        
+        # Test OpenAI
+        if OPENAI_API_KEY:
+            try:
+                client = openai.OpenAI(api_key=OPENAI_API_KEY)
+                test_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": "Dis bonjour"}],
+                    max_tokens=10
+                )
+                st.success("✅ API OpenAI OK")
+            except Exception as e:
+                st.error(f"❌ Problème API OpenAI : {str(e)}")
+        else:
+            st.error("❌ Clé API OpenAI manquante")
     
     st.stop()
 

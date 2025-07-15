@@ -1,11 +1,20 @@
 import openai
 import streamlit as st
+from config import OPENAI_API_KEY
+
+# Configuration OpenAI
+openai.api_key = OPENAI_API_KEY
 
 def summarize_emails(emails):
     """Génère un résumé des emails en utilisant OpenAI"""
     try:
         if not emails:
             return "Aucun email à résumer"
+        
+        # Vérifier la clé API
+        if not OPENAI_API_KEY:
+            st.error("❌ Clé API OpenAI non configurée")
+            return "Erreur : clé API OpenAI manquante"
         
         # Préparer le contenu pour GPT
         email_content = ""
@@ -27,28 +36,45 @@ def summarize_emails(emails):
         Résumé:
         """
         
-        # Appel à l'API OpenAI
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Vous êtes un assistant qui résume les emails de manière concise et professionnelle en français."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.3
-        )
-        
-        return response.choices[0].message.content.strip()
+        # Appel à l'API OpenAI avec gestion d'erreur détaillée
+        try:
+            client = openai.OpenAI(api_key=OPENAI_API_KEY)
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Vous êtes un assistant qui résume les emails de manière concise et professionnelle en français."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except openai.AuthenticationError:
+            st.error("❌ Erreur d'authentification OpenAI - Vérifiez votre clé API")
+            return "Erreur d'authentification OpenAI"
+        except openai.RateLimitError:
+            st.error("❌ Limite de taux OpenAI atteinte - Réessayez plus tard")
+            return "Limite de taux OpenAI atteinte"
+        except Exception as api_error:
+            st.error(f"❌ Erreur API OpenAI : {str(api_error)}")
+            return f"Erreur API OpenAI : {str(api_error)}"
         
     except Exception as e:
         st.error(f"❌ Erreur lors de la génération du résumé : {str(e)}")
-        return "Erreur lors de la génération du résumé"
+        return f"Erreur lors de la génération du résumé : {str(e)}"
 
 def generate_reply(email_body, user_prompt, email_db_id=None):
     """Génère une réponse à un email en utilisant OpenAI"""
     try:
         if not email_body or not user_prompt:
             return "Erreur: email ou prompt manquant"
+        
+        # Vérifier la clé API
+        if not OPENAI_API_KEY:
+            st.error("❌ Clé API OpenAI non configurée")
+            return "Erreur : clé API OpenAI manquante"
         
         # Vérifier s'il y a une réponse en cache
         if email_db_id:
@@ -80,34 +106,46 @@ def generate_reply(email_body, user_prompt, email_db_id=None):
         Réponse:
         """
         
-        # Appel à l'API OpenAI
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Vous êtes un assistant qui génère des réponses professionnelles à des emails en français. Soyez concis et professionnel."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=800,
-            temperature=0.5
-        )
-        
-        generated_reply = response.choices[0].message.content.strip()
-        
-        # Sauvegarder la réponse générée si on a un ID d'email
-        if email_db_id:
-            try:
-                from database_utils import save_email_reply
-                user_id = st.session_state.get('user_id')
-                if user_id:
-                    save_email_reply(user_id, email_db_id, user_prompt, generated_reply, generated_reply, False)
-            except:
-                pass  # Continuer même si la sauvegarde échoue
-        
-        return generated_reply
+        # Appel à l'API OpenAI avec gestion d'erreur détaillée
+        try:
+            client = openai.OpenAI(api_key=OPENAI_API_KEY)
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Vous êtes un assistant qui génère des réponses professionnelles à des emails en français. Soyez concis et professionnel."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=800,
+                temperature=0.5
+            )
+            
+            generated_reply = response.choices[0].message.content.strip()
+            
+            # Sauvegarder la réponse générée si on a un ID d'email
+            if email_db_id:
+                try:
+                    from database_utils import save_email_reply
+                    user_id = st.session_state.get('user_id')
+                    if user_id:
+                        save_email_reply(user_id, email_db_id, user_prompt, generated_reply, generated_reply, False)
+                except:
+                    pass  # Continuer même si la sauvegarde échoue
+            
+            return generated_reply
+            
+        except openai.AuthenticationError:
+            st.error("❌ Erreur d'authentification OpenAI - Vérifiez votre clé API")
+            return "Erreur d'authentification OpenAI"
+        except openai.RateLimitError:
+            st.error("❌ Limite de taux OpenAI atteinte - Réessayez plus tard")
+            return "Limite de taux OpenAI atteinte"
+        except Exception as api_error:
+            st.error(f"❌ Erreur API OpenAI : {str(api_error)}")
+            return f"Erreur API OpenAI : {str(api_error)}"
         
     except Exception as e:
         st.error(f"❌ Erreur lors de la génération de la réponse : {str(e)}")
-        return "Erreur lors de la génération de la réponse"
+        return f"Erreur lors de la génération de la réponse : {str(e)}"
 
 def generate_smart_reply(email_body, email_subject, sender, user_context=""):
     """Génère une réponse intelligente basée sur le contexte"""
